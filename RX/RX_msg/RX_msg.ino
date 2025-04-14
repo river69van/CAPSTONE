@@ -47,9 +47,10 @@ struct_message From_other_node_msg; //An ma ta-tanggap na data mangangadi
 void IRAM_ATTR gpsPPSInterrupt() {
 	
 	initialize_node_cycle_counter++;
+  if(initialize_node_cycle_counter >= 11)initialize_node_cycle_counter = 11;
 	send_flag = true;
-	if(initialize_node_cycle_counter >= 10)
-	esp_now_send(broadcastAddress, (uint8_t *)&Node_self_message, sizeof(Node_self_message));
+	//if(initialize_node_cycle_counter >= 10)
+	//esp_now_send(broadcastAddress, (uint8_t *)&Node_self_message, sizeof(Node_self_message));
 	
 }
 
@@ -125,6 +126,16 @@ void onDataRecv(const esp_now_recv_info_t *info, const uint8_t *incomingData, in
 	Serial.println("m");
 	
 	
+	if(initialize_node_cycle_counter >= 10){
+	esp_err_t result = esp_now_send(info->src_addr, (uint8_t *)&Node_self_message, sizeof(Node_self_message));
+    if (result == ESP_OK) {
+        Serial.println("Reply sent!");
+    } else {
+        Serial.println("Failed to send reply!");
+    }
+  }
+	
+	
 	
 }
 
@@ -135,6 +146,7 @@ void setup(){
 	Serial.begin(115200);
 	WiFi.mode(WIFI_STA);
 	setCpuFrequencyMhz(240);  // Set CPU to 240 MHz
+  ss.begin(GPSBaud);
 	delay(100);
 	
 	if (esp_now_init() != ESP_OK) {
@@ -161,12 +173,21 @@ void loop(){
 	
 	if(send_flag){
 
-		if (gps.location.isValid()){
-
-			Node_self_message.latitude = gps.location.lat();
-			Node_self_message.longitude = gps.location.lng();
+    while (ss.available() > 0){
+      if (gps.encode(ss.read()))
+      displayInfo();
+    }
 			send_flag = false;
-		}
+		
 
 	}
+}
+
+void displayInfo(){
+  if (gps.location.isValid()){
+  Node_self_message.latitude = gps.location.lat();
+  Node_self_message.longitude = gps.location.lng();
+ // Serial.println(Node_self_message.latitude, 5);
+  //Serial.println(Node_self_message.longitude, 5);
+  }
 }

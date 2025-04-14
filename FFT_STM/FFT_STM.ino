@@ -14,10 +14,30 @@ volatile uint16_t adc_buffer[ADC_BUFFER_SIZE];
 float vReal[ADC_BUFFER_SIZE];
 float vImag[ADC_BUFFER_SIZE];
 ArduinoFFT<float> FFT = ArduinoFFT<float>(vReal, vImag, ADC_BUFFER_SIZE, samplingFrequency, true);
+
 #define SCL_INDEX 0x00
 #define SCL_TIME 0x01
 #define SCL_FREQUENCY 0x02
 #define SCL_PLOT 0x03
+
+float cross_cor(){
+	
+	//ig uncomment pag mayda na hin ref signal
+	/*
+	float dot = 0, normA = 0, normB = 0;
+	
+	for (int i = 0; i < N; i++) {
+		dot += refFFT[i] * vReal[i];
+		normA += refFFT[i] * refFFT[i];
+		normB += vReal[i] * vReal[i];
+	}
+	
+	return similarity = dot / sqrt(normA * normB);
+	*/
+	
+}
+
+
 
 void adc_dma_init() {
     // Clocks
@@ -119,55 +139,48 @@ void loop() {
     vImag[i] = 0.0f;
   }
 
-  Serial.println("Data:");
-  PrintVector(vReal, ADC_BUFFER_SIZE, SCL_TIME);
-
-  FFT.windowing(FFTWindow::Hamming, FFTDirection::Forward);	
-  Serial.println("Weighed data:");
-  PrintVector(vReal, ADC_BUFFER_SIZE, SCL_TIME);
-
-  FFT.compute(FFTDirection::Forward); 
-  Serial.println("Computed Real values:");
-  PrintVector(vReal, ADC_BUFFER_SIZE, SCL_INDEX);
-  Serial.println("Computed Imaginary values:");
-  PrintVector(vImag, ADC_BUFFER_SIZE, SCL_INDEX);
-
-  FFT.complexToMagnitude(); 
-  Serial.println("Computed magnitudes:");
-  PrintVector(vReal, (ADC_BUFFER_SIZE >> 1), SCL_FREQUENCY);
-
-  float x = FFT.majorPeak();
-  Serial.println(x, 6); // Print dominant frequency
-
-  delay(1000);  // Optional for pacing
+	calculate_FFT();
+	Serial.println("Computed magnitudes:");
+	//PrintVector(vReal, (ADC_BUFFER_SIZE >> 1), SCL_FREQUENCY);
+	
+	PrintVector(vReal, (ADC_BUFFER_SIZE >> 1), SCL_FREQUENCY);
+	
+	float x = FFT.majorPeak();
+	Serial.println(x, 6); // Print dominant frequenc
+  //while(1);
+	delay(1000);  // Optional for pacing
 }
 
 
-/*
-void loop() {
- 
-  Serial.println("Data:");
-  PrintVector(vReal, ADC_BUFFER_SIZE, SCL_TIME);
-  FFT.windowing(FFTWindow::Hamming, FFTDirection::Forward);	
-  Serial.println("Weighed data:");
-  PrintVector(vReal, ADC_BUFFER_SIZE, SCL_TIME);
-  FFT.compute(FFTDirection::Forward); 
-  Serial.println("Computed Real values:");
-  PrintVector(vReal, ADC_BUFFER_SIZE, SCL_INDEX);
-  Serial.println("Computed Imaginary values:");
-  PrintVector(vImag, ADC_BUFFER_SIZE, SCL_INDEX);
-  FFT.complexToMagnitude(); 
-  Serial.println("Computed magnitudes:");
-  PrintVector(vReal, (ADC_BUFFER_SIZE >> 1), SCL_FREQUENCY);
-  float x = FFT.majorPeak();
-  Serial.println(x, 6); //Print out what frequency is the most dominant.
-  delay(1000);
- 
- 
+void calculate_FFT(){
+	FFT.windowing(FFTWindow::Hamming, FFTDirection::Forward);
+	FFT.compute(FFTDirection::Forward);
+	FFT.complexToMagnitude();	
+
 }
-*/
 
 
+void calculate_print(){
+	Serial.println("Data:");
+	PrintVector(vReal, ADC_BUFFER_SIZE, SCL_TIME);
+
+	FFT.windowing(FFTWindow::Hamming, FFTDirection::Forward);	
+	Serial.println("Weighed data:");
+	PrintVector(vReal, ADC_BUFFER_SIZE, SCL_TIME);
+
+	FFT.compute(FFTDirection::Forward); 
+	Serial.println("Computed Real values:");
+	PrintVector(vReal, ADC_BUFFER_SIZE, SCL_INDEX);
+	Serial.println("Computed Imaginary values:");
+	PrintVector(vImag, ADC_BUFFER_SIZE, SCL_INDEX);
+
+	FFT.complexToMagnitude(); 
+	Serial.println("Computed magnitudes:");
+	PrintVector(vReal, (ADC_BUFFER_SIZE >> 1), SCL_FREQUENCY);
+
+	float x = FFT.majorPeak();
+	Serial.println(x, 6); // Print dominant frequency
+}
 
 
 
@@ -192,10 +205,10 @@ void PrintVector(float *vData, uint16_t bufferSize, uint8_t scaleType)
         abscissa = ((i * 1.0 * samplingFrequency) / ADC_BUFFER_SIZE);
 	break;
     }
-    Serial.print(abscissa, 6);
+    //Serial.print(abscissa, 6);
     if(scaleType==SCL_FREQUENCY)
-      Serial.print("Hz");
-    Serial.print(" ");
+    //Serial.print("Hz");
+    //Serial.print(" ");
     Serial.println(vData[i], 4);
   }
   Serial.println();
