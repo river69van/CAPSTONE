@@ -23,32 +23,41 @@
     5. The slave devices will send random data to the master every 5 seconds.
       - Every "REPORT_INTERVAL" messages, the slaves will send a message to the other slaves.
     6. The master device will calculate the average of the data and send it to the slave devices every "REPORT_INTERVAL" messages.
+	
+------------------------------------------------------ akon logs -----------------------------------------------------------------------
+	19/04/2025 02:32 {
+		akon solution ha problema na; pag na paparong an naka established na, na node tapos ig turn on utro dre na hiya ma connect.
+		ig reset kola an tanan na node ha spacific the counter based pa PPS count hahahaha ez
+	}
+	
 
 */
-
+#include <TinyGPSPlus.h>
+#include <SoftwareSerial.h>
 #include "ESP32_NOW.h"
 #include "WiFi.h"
-
+#include <math.h>
 #include <esp_mac.h>  // For the MAC2STR and MACSTR macros
 #include <Ticker.h>
 #include <vector>
 
 /* Definitions */
 
+#define EARTH_RADIUS_KM 6371.0088 
+
+
+#define Node_Number 3
 // Wi-Fi interface to be used by the ESP-NOW protocol
 #define ESPNOW_WIFI_IFACE WIFI_IF_STA
 
 // Channel to be used by the ESP-NOW protocol
 #define ESPNOW_WIFI_CHANNEL 4
 
-// Delay between sending messages
-#define ESPNOW_SEND_INTERVAL_MS 5000
-
 // Number of peers to wait for (excluding this device)
 #define ESPNOW_PEER_COUNT 3
 
 // Report to other devices every 5 messages
-#define REPORT_INTERVAL 5
+#define REPORT_INTERVAL 2
 
 /*
     ESP-NOW uses the CCMP method, which is described in IEEE Std. 802.11-2012, to protect the vendor-specific action frame.
@@ -70,6 +79,22 @@
 #define ESPNOW_EXAMPLE_PMK "pmk1234567890123"
 #define ESPNOW_EXAMPLE_LMK "lmk1234567890123"
 
+
+
+//others
+static const int RXPin = 18, TXPin = 19;	//GPIO han ig co connect han GPS module
+static const uint32_t GPSBaud = 9600;
+volatile bool start_flag = false;
+static const int initialize_time_GPS_PPS = 60; // 1 min init time for the nodes to establish connection to the satellites 
+int initialize_time_GPS_PPS_counter = 0;
+
+
+// The TinyGPSPlus object
+TinyGPSPlus gps;
+
+// The serial connection to the GPS device
+SoftwareSerial ss(RXPin, TXPin);
+
 /* Structs */
 
 // The following struct is used to send data to the peer device.
@@ -77,13 +102,51 @@
 // is contiguous in the memory and without gaps).
 // The maximum size of the complete message is 250 bytes (ESP_NOW_MAX_DATA_LEN).
 Ticker T;
+
 typedef struct {
+	
+  //for sync puposes 
   uint32_t count;
   uint32_t priority;
-  uint32_t data;
   bool ready;
   char str[7];
+  
+  //data side/mga karan distances tas node num
+  int node_number;
+  uint32_t data;
+  
+  //coordinates
+  double latitude;
+  double longitude;
+  
+  
 } __attribute__((packed)) esp_now_data_t;
+
+typedef struct{
+
+	double N_1_2;
+	double N_1_3;
+	double N_1_4;
+	double N_2_3;
+	double N_2_4;
+	double N_3_4;
+	
+  double N1_coordinates_x;
+  double N1_coordinates_y;
+
+  double N2_coordinates_x;
+  double N2_coordinates_y;
+
+  double N3_coordinates_x;
+  double N3_coordinates_y;
+
+  double N4_coordinates_x;
+  double N4_coordinates_y;
+
+	
+}node_dist;
+
+node_dist Node_distances_struct;
 
 /* Global Variables */
 
@@ -101,6 +164,43 @@ std::vector<uint32_t> last_data(5);  // Vector that will store the last 5 data r
 // We need to create a class that inherits from ESP_NOW_Peer and implement the _onReceive and _onSent methods.
 // This class will be used to store the priority of the device and to send messages to the peers.
 // For more information about the ESP_NOW_Peer class, see the ESP_NOW_Peer class in the ESP32_NOW.h file.
+
+
+void intr_func(){
+  
+  if(initialize_time_GPS_PPS_counter >= initialize_time_GPS_PPS){
+	  
+    start_flag = true;
+	
+  }else{
+	  
+	initialize_time_GPS_PPS_counter++;
+	
+  }
+  
+}
+
+//Amo na ine na part an pag calculate hin distance kada node gamit han coordinates han GPS module (kaylangan 2 na inputs)
+//start han code (node-to-node distance)
+double degToRad(double deg) {
+    return deg * (M_PI / 180.0);
+}
+
+double haversine(double lat1, double lon1, double lat2, double lon2) {
+    double dLat = degToRad(lat2 - lat1);
+    double dLon = degToRad(lon2 - lon1);
+    
+    double a = sin(dLat / 2) * sin(dLat / 2) +
+               cos(degToRad(lat1)) * cos(degToRad(lat2)) *
+               sin(dLon / 2) * sin(dLon / 2);
+
+    double c = 2 * atan2(sqrt(a), sqrt(1 - a));
+
+    return EARTH_RADIUS_KM * c * 1e3;  // Distance in m
+}
+//end han code (node-to-node distance)
+
+
 
 class ESP_NOW_Network_Peer : public ESP_NOW_Peer {
 public:
@@ -139,13 +239,48 @@ public:
       Serial.printf("Peer " MACSTR " reported ready\n", MAC2STR(addr()));
       peer_ready = true;
     }
-
+	
+	
+	
+	// dd han pag access han mga data ha tanan na nodes
     if (!broadcast) {
       recv_msg_count++;
       if (device_is_master) {
+		 
+		 
+		// pag kuha han coordinates tikang ha iba 
+		switch(msg->node_number){
+			case 1:
+				Node_distances_struct.N1_coordinates_x = msg->latitude;
+				Node_distances_struct.N1_coordinates_y = msg->longitude;
+				Serial.printf("node%d lat: %.2f long: %.2f\n",msg->node_number, msg->latitude, msg->longitude);
+			break;
+			case 2:
+				Node_distances_struct.N2_coordinates_x = msg->latitude;
+				Node_distances_struct.N2_coordinates_y = msg->longitude;
+				Serial.printf("node%d lat: %.2f long: %.2f\n",msg->node_number, msg->latitude, msg->longitude);
+			break;
+			case 3:
+				Node_distances_struct.N3_coordinates_x = msg->latitude;
+				Node_distances_struct.N3_coordinates_y = msg->longitude;
+				Serial.printf("node%d lat: %.2f long: %.2f\n",msg->node_number, msg->latitude, msg->longitude);
+			break;
+			case 4:
+				Node_distances_struct.N4_coordinates_x = msg->latitude;
+				Node_distances_struct.N4_coordinates_y = msg->longitude;
+				Serial.printf("node%d lat: %.2f long: %.2f\n",msg->node_number, msg->latitude, msg->longitude);
+			break;
+			default:
+			break;
+		}
+		  
+		/*
         Serial.printf("Received a message from peer " MACSTR "\n", MAC2STR(addr()));
         Serial.printf("  Count: %lu\n", msg->count);
         Serial.printf("  Random data: %lu\n", msg->data);
+		*/
+		
+		
         last_data.push_back(msg->data);
         last_data.erase(last_data.begin());
       } else if (peer_is_master) {
@@ -242,11 +377,11 @@ void register_new_peer(const esp_now_recv_info_t *info, const uint8_t *data, int
   }
 }
 
+
+
+
+
 /* Main */
-volatile bool start_flag = false;
-void intr_func(){
-	start_flag = true;
-}
 
 void send_func_block(){
 	
@@ -286,7 +421,9 @@ void send_func_block(){
     if (!device_is_master) {
       // Send a message to the master
       new_msg.count = sent_msg_count + 1;
-      new_msg.data = random(10000);
+	  
+      new_msg.data = 1;
+	  
       if (!master_peer->send_message((const uint8_t *)&new_msg, sizeof(new_msg))) {
         Serial.println("Failed to send message to the master");
       } else {
@@ -332,6 +469,18 @@ void send_func_block(){
 }
 
 
+// pag calculate na han node to node distances
+void calc_node_distances(node_dist *distances){
+	
+	distances->N_1_2 = haversine(distances->N1_coordinates_x, distances->N1_coordinates_y, distances->N2_coordinates_x, distances->N2_coordinates_y );
+	distances->N_1_3 = haversine(distances->N1_coordinates_x, distances->N1_coordinates_y, distances->N3_coordinates_x, distances->N3_coordinates_y );
+	distances->N_1_4 = haversine(distances->N1_coordinates_x, distances->N1_coordinates_y, distances->N4_coordinates_x, distances->N4_coordinates_y );
+	distances->N_2_3 = haversine(distances->N2_coordinates_x, distances->N2_coordinates_y, distances->N3_coordinates_x, distances->N3_coordinates_y );
+	distances->N_2_4 = haversine(distances->N2_coordinates_x, distances->N2_coordinates_y, distances->N4_coordinates_x, distances->N4_coordinates_y );
+	distances->N_3_4 = haversine(distances->N3_coordinates_x, distances->N3_coordinates_y, distances->N4_coordinates_x, distances->N4_coordinates_y );
+}
+
+
 
 void setup() {
   uint8_t self_mac[6];
@@ -374,7 +523,44 @@ void setup() {
   memset(&new_msg, 0, sizeof(new_msg));
   strncpy(new_msg.str, "Hello!", sizeof(new_msg.str));
   new_msg.priority = self_priority;
+  new_msg.node_number = Node_Number;
+  
   T.attach(1, intr_func);
+  
+  
+  //dummy data
+switch(Node_Number){
+	case 1:
+	
+		new_msg.latitude = 1.0;
+		new_msg.longitude = 1.1;
+		
+	break;
+	case 2:
+	
+		new_msg.latitude = 2.0;
+		new_msg.longitude = 2.2;
+		
+	break;
+	case 3:
+	
+		new_msg.latitude = 3.0;
+		new_msg.longitude = 3.3;
+
+	break;
+	case 4:
+	
+		new_msg.latitude = 4.0;
+		new_msg.longitude = 4.4;
+
+	break;
+	default:
+	break;
+	
+	
+}
+  
+  
 }
 
 void loop() {
@@ -383,6 +569,49 @@ void loop() {
 		start_flag = false;
 		send_func_block();
 	}
+	
+	while (ss.available() > 0){
+      if (gps.encode(ss.read()))
+      displayInfo(&Node_distances_struct, &new_msg);
+    }
+
+}
 
 
+void displayInfo(node_dist *dist, esp_now_data_t *loc_msg){
+	
+  if (gps.location.isValid() && gps.hdop.hdop() < 2.0){
+	  
+  double lat = gps.location.lat();
+  double lng = gps.location.lng();
+  
+  loc_msg->latitude = lat;
+  loc_msg->longitude = lng;
+  
+  
+  //pag kuha han sefl coordinates
+  switch(Node_Number){
+	case 1:
+		dist->N1_coordinates_x = lat;
+		dist->N1_coordinates_y = lng;
+	break;
+	case 2:
+		dist->N2_coordinates_x = lat;
+		dist->N2_coordinates_y = lng;
+	break;
+	case 3:
+		dist->N3_coordinates_x = lat;
+		dist->N3_coordinates_y = lng;
+	break;
+	case 4:
+		dist->N4_coordinates_x = lat;
+		dist->N4_coordinates_y = lng;
+	break;
+	default:
+	break;
+	
+    }
+  //Serial.println(Node_self_message.latitude, 5);
+  //Serial.println(Node_self_message.longitude, 5);
+  }
 }
