@@ -1,3 +1,22 @@
+/*
+
+*	log 18/04/25 23:28 {
+	
+	Dre ngayan ma aasahan an esp_now_send erratique an iya behaviour danay dre na kaka send nag pipinan masang la kaylangan mag implement catch 
+	
+	}
+
+
+
+
+
+
+
+*/
+
+
+
+
 #include <math.h>
 #include <esp_now.h>
 #include <WiFi.h>
@@ -6,7 +25,7 @@
 
 
 //change based on node number
-#define NODE_number 1
+#define NODE_number 4
 
 Ticker T;
 
@@ -21,11 +40,11 @@ volatile int cycle_wave_counter = -1;
 static const int RXPin = 18, TXPin = 19;	//GPIO han ig co connect han GPS module
 static const uint32_t GPSBaud = 9600;
 volatile bool send_flag = false;
-volatile bool reset_flag;
+//volatile bool reset_flag;
 #if NODE_number == 1
-  reset_flag = true;
+  volatile bool reset_flag = true;
 #else
-  reset_flag = false;
+  volatile bool reset_flag = false;
 #endif
 //node mac addr
 uint8_t NODE1[] = {0xCC, 0x7B, 0x5C, 0x36, 0xC1, 0x04};
@@ -82,7 +101,7 @@ typedef struct{
 
 
 typedef struct struct_message {
-	
+	uint8_t seq;
 	int message;		//node number
 	double latitude;
 	double longitude;
@@ -120,7 +139,7 @@ void setupPeers() {
   for (int i = 0; i < NUM_PEERS; i++) {
     esp_now_peer_info_t peerInfo = {};
     memcpy(peerInfo.peer_addr, peerList[i], 6);
-    peerInfo.channel = 0;          // Use current WiFi channel
+    peerInfo.channel = 1;          // Use current WiFi channel
     peerInfo.encrypt = false;      // Set to true if using encryption and peer supports it
 
     // Avoid adding the same peer twice
@@ -161,6 +180,22 @@ void onDataRecv(const esp_now_recv_info_t *info, const uint8_t *incomingData, in
 	
 	
 	
+	//debug
+  /*
+	Serial.printf("N%d ◀ recv from %02X:%02X:%02X:%02X:%02X:%02X  seq=%u  starter=%d  send_msg=%d  is_ack=%d\n",
+              NODE_number,
+              info->src_addr[0],info->src_addr[1],info->src_addr[2],
+              info->src_addr[3],info->src_addr[4],info->src_addr[5],
+              From_other_node_msg.seq,
+              From_other_node_msg.starter,
+              From_other_node_msg.send_msg,
+              From_other_node_msg.is_ack
+	);
+  */
+	
+	
+	
+	
 	
 	
 #if NODE_number == 1
@@ -172,22 +207,22 @@ void onDataRecv(const esp_now_recv_info_t *info, const uint8_t *incomingData, in
 			break;
 			case 2:
 				Serial.println("from N2");
-				if(sendStatusCounter >=5)						// ig verify anay na naka send na ma karan 10 ka beses para bisan mayda packet loss na sasalo han node
+				//if(sendStatusCounter >=5)						// ig verify anay na naka send na ma karan 10 ka beses para bisan mayda packet loss na sasalo han node
 				node_distances_and_status.N2_starter = true;	//pag verify na naka recieve na an node(2,3,...)
 			break;
 			case 3:
 				Serial.println("from N3");
-				if(sendStatusCounter >=5)
+				//if(sendStatusCounter >=5)
 				node_distances_and_status.N3_starter = true;
 			break;
 			case 4:
-				Serial.println("from N4");
-				if(sendStatusCounter >=5){
+				Serial.printf("from N4, counter: %d\n", sendStatusCounter);
+				//if(sendStatusCounter >=5)
 				node_distances_and_status.N4_starter = true;
 				
 				
 				
-				}
+				
 				
 				if(From_other_node_msg.send_msg){
 					
@@ -211,12 +246,13 @@ void onDataRecv(const esp_now_recv_info_t *info, const uint8_t *incomingData, in
 				*	once na ma run na ine hiya na line meaning nag reply na tanan na nodes ha N1 ma trigger adi na line 
 				*	"if(node_distances_and_status.N2_starter && node_distances_and_status.N3_starter && node_distances_and_status.N4_starter)"
 				*/
+				esp_now_send(info->src_addr, (uint8_t *)&Node_self_message, sizeof(Node_self_message));
 				if(From_other_node_msg.send_msg){
 					
 					reset_flag = From_other_node_msg.send_msg;
 					Node_self_message.is_ack = true;
 					esp_now_send(info->src_addr, (uint8_t *)&Node_self_message, sizeof(Node_self_message));
-					
+					Node_self_message.is_ack = false;
 				}
 				
 			break;
@@ -225,12 +261,12 @@ void onDataRecv(const esp_now_recv_info_t *info, const uint8_t *incomingData, in
 			break;
 			case 3:
 				Serial.println("from N3");
-				if(sendStatusCounter >=5)
+				//if(sendStatusCounter >=5)
 				node_distances_and_status.N3_starter = true;
 			break;
 			case 4:
 				Serial.println("from N4");
-				if(sendStatusCounter >=5)
+				//if(sendStatusCounter >=5)
 				node_distances_and_status.N4_starter = true;
 			break;
 			default:
@@ -245,15 +281,17 @@ void onDataRecv(const esp_now_recv_info_t *info, const uint8_t *incomingData, in
 	switch(From_other_node_msg.message){
 		
 		case 1:
-			
+			//digitalWrite(17, 1);
 			esp_now_send(info->src_addr, (uint8_t *)&Node_self_message, sizeof(Node_self_message));
 		break;
 		case 2:
+		esp_now_send(info->src_addr, (uint8_t *)&Node_self_message, sizeof(Node_self_message));
 			if(From_other_node_msg.send_msg){
 					
 					reset_flag = From_other_node_msg.send_msg;
 					Node_self_message.is_ack = true;	//to turn of an node1 ha pag senend han packet to node2 
 					esp_now_send(info->src_addr, (uint8_t *)&Node_self_message, sizeof(Node_self_message));
+					Node_self_message.is_ack = false;
 					
 			}
 		break;
@@ -262,7 +300,7 @@ void onDataRecv(const esp_now_recv_info_t *info, const uint8_t *incomingData, in
 		break;
 		case 4:
 			Serial.println("from N4");
-			if(sendStatusCounter >=5)
+			//if(sendStatusCounter >=5)
 			node_distances_and_status.N4_starter = true;
 		break;
 		default:
@@ -277,6 +315,7 @@ void onDataRecv(const esp_now_recv_info_t *info, const uint8_t *incomingData, in
 	switch(From_other_node_msg.message){
 	
 	case 1:
+		node_distances_and_status.N1_starter = true;
 		esp_now_send(info->src_addr, (uint8_t *)&Node_self_message, sizeof(Node_self_message));
 	break;
 	case 2:
@@ -284,16 +323,17 @@ void onDataRecv(const esp_now_recv_info_t *info, const uint8_t *incomingData, in
 	break;
 	case 3:
 		Serial.println("from N3");
-		if(sendStatusCounter >=5){
-			
-			if(From_other_node_msg.send_msg){
+		esp_now_send(info->src_addr, (uint8_t *)&Node_self_message, sizeof(Node_self_message));
+		
+		//if(sendStatusCounter >=5)
+		esp_now_send(info->src_addr, (uint8_t *)&Node_self_message, sizeof(Node_self_message));
+		
+		
+		if(From_other_node_msg.send_msg){
 					Node_self_message.is_ack = true;
 					reset_flag = From_other_node_msg.send_msg;
 					esp_now_send(info->src_addr, (uint8_t *)&Node_self_message, sizeof(Node_self_message));
-				}
-				
-		node_distances_and_status.N1_starter = true;
-		esp_now_send(info->src_addr, (uint8_t *)&Node_self_message, sizeof(Node_self_message));
+					Node_self_message.is_ack = false;
 		}
 	break;
 	case 4:
@@ -325,6 +365,7 @@ Node_self_message.is_ack = false;
 node_distances_and_status.N2_starter = false;
 node_distances_and_status.N3_starter = false;
 node_distances_and_status.N4_starter = false;
+reset_flag = true;	
 #elif NODE_number == 2
 reset_flag = false;								//false la anay ine hiya habang dre pa tapos mag send an previous node
 node_distances_and_status.N3_starter = false;
@@ -364,6 +405,7 @@ reset_flag = false;								//false la anay ine hiya habang dre pa tapos mag send
 	Node_self_message.starter = true;			// ig true kay para maka reply na an iba na node ma stop na adi na line "while(!From_other_node_msg.starter)" baga han ACK
 	From_other_node_msg.starter = false;		//ma gi gin true ine hiya pag ma receive adi na line "memcpy(&From_other_node_msg, incomingData, sizeof(From_other_node_msg))" tas ma reset ha false pag ma trigger na liwat han ISR
 	From_other_node_msg.is_ack = false;
+	digitalWrite(17, 0);
 }
 
 void loop() {
@@ -377,42 +419,49 @@ void loop() {
 		reset_flag = false;	// para dre la anay utro may send an node pag na fulfill na niya an pag send ha mga noded gamit an established pattern (Node1 = send to node 2,3,4; Node2 = send to node 3, 4; Node3 = send to node 4)
 		Node_self_message.send_msg = true;	//prepare han pag turn on han N2
 		esp_now_send(NODE2, (uint8_t *)&Node_self_message, sizeof(Node_self_message));
-		
+		Serial.printf("N%d  flags: reset=%d  send_flag=%d  starter=%d  is_ack=%d  N3_starter=%d  N4_starter=%d\n",
+              NODE_number, reset_flag, send_flag,
+              From_other_node_msg.starter, From_other_node_msg.is_ack,
+              node_distances_and_status.N3_starter,
+              node_distances_and_status.N4_starter
+	);
 		
 	}
-	
+
 	if(From_other_node_msg.is_ack){
 		node_distances_and_status.N2_starter = false;
 		node_distances_and_status.N3_starter = false;
 		node_distances_and_status.N4_starter = false;
 		Node_self_message.send_msg = false;
 		From_other_node_msg.is_ack = false;
-	}
 		
+	}
+	
 	
 	if(send_flag && reset_flag){
 		send_flag = false;		//karan ISR la ine flag para pan trigger 1Hz
-		while(!From_other_node_msg.starter){
+		//while(!From_other_node_msg.starter){
 			
 			if(cycle_wave_counter > sizeof(peerList_node1)/sizeof(peerList_node1[0])-1) cycle_wave_counter = 0;
-			for(int k = 0; k != 10; k++){	// ig send ma karan 10 ka beses ha usa na node para bis may ma wawara na packet ma sasalo la gihap han node
-			sendStatusCounter++;			// pag track kun pira na an na send 
+			//for(int k = 0; k != 10; k++){	// ig send ma karan 10 ka beses ha usa na node para bis may ma wawara na packet ma sasalo la gihap han node
+			//sendStatusCounter++;			// pag track kun pira na an na send 
 			esp_now_send(peerList_node1[cycle_wave_counter], (uint8_t *)&Node_self_message, sizeof(Node_self_message));		//an pag send la han struct message 
 			//delay(5);
-			}
+			//}
 			
-		}	
+		//}
+		//Serial.println("na run dd");
 	}
 	
-	//LED debug
-	if(!node_distances_and_status.N2_starter && !node_distances_and_status.N3_starter && !node_distances_and_status.N4_starter && !reset_flag){
-		digitalWrite(17, 1);
-		delay(1000);
-		digitalWrite(17, 0);
-		delay(1000);
-	}
+
+delay(50);
 	
 #elif NODE_number == 2
+
+	if(!node_distances_and_status.N3_starter && !node_distances_and_status.N4_starter && reset_flag){
+		digitalWrite(17, 1);
+		
+	}
 
 	if(node_distances_and_status.N3_starter && node_distances_and_status.N4_starter){
 
@@ -430,29 +479,28 @@ void loop() {
 			node_distances_and_status.N4_starter = false;
 			Node_self_message.send_msg = false;
 			From_other_node_msg.is_ack = false;
+			digitalWrite(17, 0);
 	}
 		
 
 	if(send_flag && reset_flag){
 		send_flag = false;
-		while(!From_other_node_msg.starter){
+		//while(!From_other_node_msg.starter){
 			
 			if(cycle_wave_counter > sizeof(peerList_node2)/sizeof(peerList_node2[0])-1) cycle_wave_counter = 0;
-			for(int k = 0; k != 10; k++){
-			sendStatusCounter++;
+			//for(int k = 0; k != 10; k++){
+			//sendStatusCounter++;
 			esp_now_send(peerList_node2[cycle_wave_counter], (uint8_t *)&Node_self_message, sizeof(Node_self_message));
 			//delay(5);
-			}
+			//}
 			
-		}	
+		//}
+	digitalWrite(17,1);		
 	}
 	
-	if(!node_distances_and_status.N3_starter && !node_distances_and_status.N4_starter && !reset_flag){
-		digitalWrite(17, 1);
-		delay(1000);
-		digitalWrite(17, 0);
-		delay(1000);
-	}
+	
+	//LED debug
+	
 	
 	
 #elif NODE_number == 3
@@ -460,7 +508,7 @@ void loop() {
 
 	if(node_distances_and_status.N4_starter){
 
-
+		
 		reset_flag = false;
 		Node_self_message.send_msg = true;
 		esp_now_send(NODE4, (uint8_t *)&Node_self_message, sizeof(Node_self_message));
@@ -476,21 +524,26 @@ void loop() {
 			node_distances_and_status.N4_starter = false;
 			Node_self_message.send_msg = false;
 			From_other_node_msg.is_ack = false;
+			digitalWrite(17, 0);
 		}
 	
 	if(send_flag && reset_flag){
 		send_flag = false;
-		while(!From_other_node_msg.starter){
+		//while(!From_other_node_msg.starter){
 			
 			//if(cycle_wave_counter > sizeof(peerList_node2)/sizeof(peerList_node2[0])-1) cycle_wave_counter = 0;
-			for(int k = 0; k != 10; k++){
-			sendStatusCounter++;
+			//for(int k = 0; k != 10; k++){
+			//sendStatusCounter++;
 			esp_now_send(NODE4, (uint8_t *)&Node_self_message, sizeof(Node_self_message));
 			//delay(5);
-			}
+			//}
 			
-		}	
+		//}	
+		digitalWrite(17,1);
 	}
+	
+	//LED debug
+	
 	
 
 #else
@@ -501,32 +554,36 @@ void loop() {
 		Node_self_message.send_msg = true;
 		esp_now_send(NODE1, (uint8_t *)&Node_self_message, sizeof(Node_self_message));
 		
-		if(From_other_node_msg.is_ack){
+	}
+	if(From_other_node_msg.is_ack){
 			//node_distances_and_status.N2_starter = false;
 			//node_distances_and_status.N3_starter = false;
 			node_distances_and_status.N1_starter = false;
 			Node_self_message.send_msg = false;
 			From_other_node_msg.is_ack = false;
+			digitalWrite(17, 0);
 		}
-		
-
-	}
 
 	if(send_flag && reset_flag){
 		send_flag = false;
-		while(!From_other_node_msg.starter){
+		//while(!From_other_node_msg.starter){
 			
 			//if(cycle_wave_counter > sizeof(peerList_node2)/sizeof(peerList_node2[0])-1) cycle_wave_counter = 0;
-			for(int k = 0; k != 10; k++){
+			//for(int k = 0; k != 10; k++){
 				
-			sendStatusCounter++;
+			//sendStatusCounter++;
 			esp_now_send(NODE1, (uint8_t *)&Node_self_message, sizeof(Node_self_message));
 			//delay(5);
 			
-			}
+			//}
 			
-		}
+		//}
+		digitalWrite(17,1);
 	}
+	
+	//LED debug
+
+	
 
 #endif	
 
