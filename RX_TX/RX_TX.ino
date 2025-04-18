@@ -86,6 +86,7 @@ typedef struct struct_message {
 	int self_priority;
 	bool master_node;
 	bool starter;
+	bool send_msg;
 	
 }__attribute__((packed)) struct_message;
 
