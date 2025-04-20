@@ -30,6 +30,12 @@
 		ig reset kola an tanan na node ha spacific the counter based pa PPS count hahahaha ez
 	}
 	
+	21/04/2025 05:15{
+		Dapat ine na line "if(reset_counter % 5 == Node_Number)" may ig enclose somthing na, na verify
+		na ready na tanan na nodes. Tas dapat an pag reset na solution ma depend ha time tikang han GPS module. 
+		
+	}
+	
 
 */
 #include <TinyGPSPlus.h>
@@ -46,7 +52,9 @@
 #define EARTH_RADIUS_KM 6371.0088 
 
 
-#define Node_Number 3
+#define INTR_PIN 4
+
+#define Node_Number 1
 // Wi-Fi interface to be used by the ESP-NOW protocol
 #define ESPNOW_WIFI_IFACE WIFI_IF_STA
 
@@ -57,7 +65,7 @@
 #define ESPNOW_PEER_COUNT 3
 
 // Report to other devices every 5 messages
-#define REPORT_INTERVAL 2
+#define REPORT_INTERVAL 10
 
 /*
     ESP-NOW uses the CCMP method, which is described in IEEE Std. 802.11-2012, to protect the vendor-specific action frame.
@@ -85,8 +93,10 @@
 static const int RXPin = 18, TXPin = 19;	//GPIO han ig co connect han GPS module
 static const uint32_t GPSBaud = 9600;
 volatile bool start_flag = false;
-static const int initialize_time_GPS_PPS = 60; // 1 min init time for the nodes to establish connection to the satellites 
+static const int initialize_time_GPS_PPS = 20; 	// 1 min init time for the nodes to establish connection to the satellites 
+static const int reset_node = 300;				//reset all node after 5 min 
 int initialize_time_GPS_PPS_counter = 0;
+int reset_counter = 0;
 
 
 // The TinyGPSPlus object
@@ -165,11 +175,15 @@ std::vector<uint32_t> last_data(5);  // Vector that will store the last 5 data r
 // This class will be used to store the priority of the device and to send messages to the peers.
 // For more information about the ESP_NOW_Peer class, see the ESP_NOW_Peer class in the ESP32_NOW.h file.
 
-
-void intr_func(){
+//ISR ---------------------------
+void IRAM_ATTR intr_func(){
+	
+  reset_counter++;
   
   if(initialize_time_GPS_PPS_counter >= initialize_time_GPS_PPS){
 	  
+	//na cycle ine hiya from 0 to 4 para anti collision 
+	if(reset_counter % 5 == Node_Number)
     start_flag = true;
 	
   }else{
@@ -236,7 +250,7 @@ public:
     esp_now_data_t *msg = (esp_now_data_t *)data;
 
     if (peer_ready == false && msg->ready == true) {
-      Serial.printf("Peer " MACSTR " reported ready\n", MAC2STR(addr()));
+      //Serial.printf("Peer " MACSTR " reported ready\n", MAC2STR(addr()));
       peer_ready = true;
     }
 	
@@ -253,22 +267,22 @@ public:
 			case 1:
 				Node_distances_struct.N1_coordinates_x = msg->latitude;
 				Node_distances_struct.N1_coordinates_y = msg->longitude;
-				Serial.printf("node%d lat: %.2f long: %.2f\n",msg->node_number, msg->latitude, msg->longitude);
+				//Serial.printf("node%d lat: %.2f long: %.2f\n",msg->node_number, msg->latitude, msg->longitude);
 			break;
 			case 2:
 				Node_distances_struct.N2_coordinates_x = msg->latitude;
 				Node_distances_struct.N2_coordinates_y = msg->longitude;
-				Serial.printf("node%d lat: %.2f long: %.2f\n",msg->node_number, msg->latitude, msg->longitude);
+				//Serial.printf("node%d lat: %.2f long: %.2f\n",msg->node_number, msg->latitude, msg->longitude);
 			break;
 			case 3:
 				Node_distances_struct.N3_coordinates_x = msg->latitude;
 				Node_distances_struct.N3_coordinates_y = msg->longitude;
-				Serial.printf("node%d lat: %.2f long: %.2f\n",msg->node_number, msg->latitude, msg->longitude);
+				//Serial.printf("node%d lat: %.2f long: %.2f\n",msg->node_number, msg->latitude, msg->longitude);
 			break;
 			case 4:
 				Node_distances_struct.N4_coordinates_x = msg->latitude;
 				Node_distances_struct.N4_coordinates_y = msg->longitude;
-				Serial.printf("node%d lat: %.2f long: %.2f\n",msg->node_number, msg->latitude, msg->longitude);
+				//Serial.printf("node%d lat: %.2f long: %.2f\n",msg->node_number, msg->latitude, msg->longitude);
 			break;
 			default:
 			break;
@@ -284,10 +298,62 @@ public:
         last_data.push_back(msg->data);
         last_data.erase(last_data.begin());
       } else if (peer_is_master) {
-        Serial.println("Received a message from the master");
-        Serial.printf("  Average data: %lu\n", msg->data);
+		  
+		switch(msg->node_number){
+			case 1:
+				Node_distances_struct.N1_coordinates_x = msg->latitude;
+				Node_distances_struct.N1_coordinates_y = msg->longitude;
+				//Serial.printf("node%d lat: %.2f long: %.2f\n",msg->node_number, msg->latitude, msg->longitude);
+			break;
+			case 2:
+				Node_distances_struct.N2_coordinates_x = msg->latitude;
+				Node_distances_struct.N2_coordinates_y = msg->longitude;
+				//Serial.printf("node%d lat: %.2f long: %.2f\n",msg->node_number, msg->latitude, msg->longitude);
+			break;
+			case 3:
+				Node_distances_struct.N3_coordinates_x = msg->latitude;
+				Node_distances_struct.N3_coordinates_y = msg->longitude;
+				//Serial.printf("node%d lat: %.2f long: %.2f\n",msg->node_number, msg->latitude, msg->longitude);
+			break;
+			case 4:
+				Node_distances_struct.N4_coordinates_x = msg->latitude;
+				Node_distances_struct.N4_coordinates_y = msg->longitude;
+				//Serial.printf("node%d lat: %.2f long: %.2f\n",msg->node_number, msg->latitude, msg->longitude);
+			break;
+			default:
+			break;  
+		}
+		
+        //Serial.println("Received a message from the master");
+        //Serial.printf("  Average data: %lu\n", msg->data);
       } else {
-        Serial.printf("Peer " MACSTR " says: %s\n", MAC2STR(addr()), msg->str);
+		  
+		  switch(msg->node_number){
+			case 1:
+				Node_distances_struct.N1_coordinates_x = msg->latitude;
+				Node_distances_struct.N1_coordinates_y = msg->longitude;
+				//Serial.printf("node%d lat: %.2f long: %.2f\n",msg->node_number, msg->latitude, msg->longitude);
+			break;
+			case 2:
+				Node_distances_struct.N2_coordinates_x = msg->latitude;
+				Node_distances_struct.N2_coordinates_y = msg->longitude;
+				//Serial.printf("node%d lat: %.2f long: %.2f\n",msg->node_number, msg->latitude, msg->longitude);
+			break;
+			case 3:
+				Node_distances_struct.N3_coordinates_x = msg->latitude;
+				Node_distances_struct.N3_coordinates_y = msg->longitude;
+				//Serial.printf("node%d lat: %.2f long: %.2f\n",msg->node_number, msg->latitude, msg->longitude);
+			break;
+			case 4:
+				Node_distances_struct.N4_coordinates_x = msg->latitude;
+				Node_distances_struct.N4_coordinates_y = msg->longitude;
+				//Serial.printf("node%d lat: %.2f long: %.2f\n",msg->node_number, msg->latitude, msg->longitude);
+			break;
+			default:
+			break;
+		  }
+		  
+        //Serial.printf("Peer " MACSTR " says: %s\n", MAC2STR(addr()), msg->str);
       }
     }
   }
@@ -486,7 +552,7 @@ void setup() {
   uint8_t self_mac[6];
 
   Serial.begin(115200);
-
+  ss.begin(GPSBaud);
   // Initialize the Wi-Fi module
   WiFi.mode(WIFI_STA);
   WiFi.setChannel(ESPNOW_WIFI_CHANNEL);
@@ -525,7 +591,10 @@ void setup() {
   new_msg.priority = self_priority;
   new_msg.node_number = Node_Number;
   
-  T.attach(1, intr_func);
+  //T.attach(1, intr_func);
+  
+  pinMode(INTR_PIN, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(INTR_PIN), intr_func, FALLING);
   
   
   //dummy data
@@ -552,6 +621,8 @@ switch(Node_Number){
 	
 		new_msg.latitude = 4.0;
 		new_msg.longitude = 4.4;
+    Node_distances_struct.N4_coordinates_x = 4.0;
+    Node_distances_struct.N4_coordinates_y = 4.4;
 
 	break;
 	default:
@@ -567,27 +638,35 @@ void loop() {
 	
 	if(start_flag){
 		start_flag = false;
+    Serial.println("na gana");
 		send_func_block();
+		//if(reset_counter >= reset_node)ESP.restart();
+		
+		if(check_all_peers_ready()){
+		print_dist(&Node_distances_struct);
+		calc_node_distances(&Node_distances_struct);
+		}
 	}
 	
+	
 	while (ss.available() > 0){
+		
       if (gps.encode(ss.read()))
-      displayInfo(&Node_distances_struct, &new_msg);
+      getInfo(&Node_distances_struct, &new_msg);
+  
     }
+	
+  
 
 }
 
 
-void displayInfo(node_dist *dist, esp_now_data_t *loc_msg){
+void getInfo(node_dist *dist, esp_now_data_t *loc_msg){
 	
   if (gps.location.isValid() && gps.hdop.hdop() < 2.0){
 	  
   double lat = gps.location.lat();
   double lng = gps.location.lng();
-  
-  loc_msg->latitude = lat;
-  loc_msg->longitude = lng;
-  
   
   //pag kuha han sefl coordinates
   switch(Node_Number){
@@ -611,7 +690,35 @@ void displayInfo(node_dist *dist, esp_now_data_t *loc_msg){
 	break;
 	
     }
+  
+  
+  //ig se send ha iba an mga coordinates
+  loc_msg->latitude = lat;
+  loc_msg->longitude = lng;
+  
+  
+  
+  
   //Serial.println(Node_self_message.latitude, 5);
   //Serial.println(Node_self_message.longitude, 5);
   }
+}
+
+
+
+void print_dist(node_dist *dist){
+	
+	Serial.printf("N1_coordinates_x: %.6f N1_coordinates_y: %.6f\n", dist->N1_coordinates_x, dist->N1_coordinates_y);
+	Serial.printf("N2_coordinates_x: %.6f N1_coordinates_y: %.6f\n", dist->N2_coordinates_x, dist->N2_coordinates_y);
+	Serial.printf("N3_coordinates_x: %.6f N1_coordinates_y: %.6f\n", dist->N3_coordinates_x, dist->N3_coordinates_y);
+	Serial.printf("N4_coordinates_x: %.6f N1_coordinates_y: %.6f\n", dist->N4_coordinates_x, dist->N4_coordinates_y);
+	
+	
+	Serial.printf("N_1_2: %.6f\n", dist->N_1_2);
+	Serial.printf("N_1_3: %.6f\n", dist->N_1_3);
+	Serial.printf("N_1_4: %.6f\n", dist->N_1_4);
+	Serial.printf("N_2_3: %.6f\n", dist->N_2_3);
+	Serial.printf("N_2_4: %.6f\n", dist->N_2_4);
+	Serial.printf("N_3_4: %.6f\n", dist->N_3_4);
+
 }

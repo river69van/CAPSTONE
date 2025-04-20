@@ -111,46 +111,59 @@ void tim3_trigger_init(uint32_t sample_rate_hz) {
     TIM_Cmd(TIM3, ENABLE);
 }
 
+void FFT_setup(){
+	
+	tim3_trigger_init(15000);  // 15 kHz ADC trigger rate via TIM3
+	adc_dma_init();
+	delay(200);
+	
+	for (int i = 0; i < ADC_BUFFER_SIZE; i++) {
+	vReal[i] = (float)adc_buffer[i] - 2048.0;
+	vImag[i] = 0.0f;
+	}
+
+	// Setup serial if needed
+	// Serial.begin(115200); // if using STM32 serial redirect
+	delay(200);
+
+}
+
+
 void setup() {
-
-
 	Serial.begin(115200);
 	//Serial.println("Ready");
 	
-	tim3_trigger_init(15000);  // 15 kHz ADC trigger rate via TIM3
-  adc_dma_init();
-	delay(200);
 	
-  for (int i = 0; i < ADC_BUFFER_SIZE; i++) {
-    vReal[i] = (float)adc_buffer[i] - 2048.0;
-    vImag[i] = 0.0f;
-  }
-	
-    // Setup serial if needed
-    // Serial.begin(115200); // if using STM32 serial redirect
-	delay(200);
 }
 
 
 void loop() {
-  // Convert ADC buffer to float for FFT input
-  for (int i = 0; i < ADC_BUFFER_SIZE; i++) {
-    vReal[i] = (float)adc_buffer[i] - 2048.0f;
-    vImag[i] = 0.0f;
-  }
+
+
+}
+
+
+
+void FFT_run(){
+
+	// Convert ADC buffer to float for FFT input
+	for (int i = 0; i < ADC_BUFFER_SIZE; i++) {
+	vReal[i] = (float)adc_buffer[i] - 2048.0f;
+	vImag[i] = 0.0f;
+	}
 
 	calculate_FFT();
 	Serial.println("Computed magnitudes:");
 	//PrintVector(vReal, (ADC_BUFFER_SIZE >> 1), SCL_FREQUENCY);
-	
+
 	PrintVector(vReal, (ADC_BUFFER_SIZE >> 1), SCL_FREQUENCY);
-	
+
 	float x = FFT.majorPeak();
 	Serial.println(x, 6); // Print dominant frequenc
-  //while(1);
+	//while(1);
 	delay(1000);  // Optional for pacing
+	
 }
-
 
 void calculate_FFT(){
 	FFT.windowing(FFTWindow::Hamming, FFTDirection::Forward);
