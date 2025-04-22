@@ -38,6 +38,8 @@
 	
 
 */
+#include <esp_wifi.h>
+#include <esp_now.h>
 #include <TinyGPSPlus.h>
 #include <SoftwareSerial.h>
 #include "ESP32_NOW.h"
@@ -559,6 +561,14 @@ void setup() {
   while (!WiFi.STA.started()) {
     delay(100);
   }
+  
+  esp_err_t err = esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_LR);
+  if (err != ESP_OK) {
+	fail_reboot();
+    Serial.printf("esp_wifi_set_protocol failed: %d\n", err);
+  } else {
+    Serial.println("Long‑Range mode enabled");
+  }
 
   Serial.println("ESP-NOW Network Example");
   Serial.println("Wi-Fi parameters:");
@@ -638,7 +648,7 @@ void loop() {
 	
 	if(start_flag){
 		start_flag = false;
-    Serial.println("na gana");
+		Serial.println("na gana");
 		send_func_block();
 		//if(reset_counter >= reset_node)ESP.restart();
 		
