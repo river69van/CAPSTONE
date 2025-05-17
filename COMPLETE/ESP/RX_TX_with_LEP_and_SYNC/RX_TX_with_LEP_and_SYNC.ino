@@ -41,6 +41,11 @@
 		tapos pwede liwat ig try and GPS time. 
 	}
 	
+	
+	17/05/2025 05:13{
+		aayoson kopa an mga struct karan delta time tas an explosion_trigger dapat ma reset tas an mga delta time liwat dapat ma reset. 
+	}
+	
 
 */
 
@@ -55,11 +60,13 @@
 #include <esp_mac.h>  // For the MAC2STR and MACSTR macros
 #include <Ticker.h>
 #include <vector>
-
+#include <xtensa/core-macros.h>
 /* Definitions */
 
 #define EARTH_RADIUS_KM 6371.0088 
 
+#define GPS_PPS_pin       34
+#define STM_trigger_pin   35
 
 #define INTR_PIN 4
 
@@ -97,6 +104,61 @@
 #define ESPNOW_EXAMPLE_LMK "lmk1234567890123"
 
 
+
+typedef struct {
+	
+  //for sync puposes 
+  uint32_t count;
+  uint32_t priority;
+  bool ready;
+  char str[7];
+  
+  //data side/mga karan distances tas node num
+  int node_number;
+  uint32_t data;
+  
+  //coordinates
+  double latitude;
+  double longitude;
+  
+  //explosion variables
+  double delta_time;
+  //bool is_explosion;
+  
+  
+} __attribute__((packed)) esp_now_data_t;
+
+typedef struct{
+
+	double N_1_2;
+	double N_1_3;
+	double N_1_4;
+	double N_2_3;
+	double N_2_4;
+	double N_3_4;
+	
+  double N1_coordinates_x;
+  double N1_coordinates_y;
+  double N1_delta_time;
+
+  double N2_coordinates_x;
+  double N2_coordinates_y;
+  double N2_delta_time;
+
+  double N3_coordinates_x;
+  double N3_coordinates_y;
+  double N3_delta_time;
+
+  double N4_coordinates_x;
+  double N4_coordinates_y;
+  double N4_delta_time;
+
+	
+}node_dist;
+
+struct Point { double x, y; }; //explosion coordinates
+
+
 /* Global Variables */
 
 uint32_t self_priority = 0;          // Priority of this device
@@ -116,7 +178,14 @@ volatile bool start_flag = false;
 static const int initialize_time_GPS_PPS = 20; 	// 1 min init time for the nodes to establish connection to the satellites 
 static const int reset_node = 300;				//reset all node after 5 min 
 int initialize_time_GPS_PPS_counter = 0;
-int reset_counter = 0;
+volatile int reset_counter = 0;
+volatile uint32_t count1   = 0;
+volatile uint32_t elapsed  = 0;
+volatile bool explosion_trigger = false;
+// CPU clock
+const uint32_t CPU_HZ = 240000000UL;
+const double   time_per_cycle = 1.0 / CPU_HZ;  // = 4.16667e-9
+const double speed_of_sound = 1510.0;
 
 
 // The TinyGPSPlus object
@@ -133,48 +202,6 @@ SoftwareSerial ss(RXPin, TXPin);
 // The maximum size of the complete message is 250 bytes (ESP_NOW_MAX_DATA_LEN).
 Ticker T;
 
-typedef struct {
-	
-  //for sync puposes 
-  uint32_t count;
-  uint32_t priority;
-  bool ready;
-  char str[7];
-  
-  //data side/mga karan distances tas node num
-  int node_number;
-  uint32_t data;
-  
-  //coordinates
-  double latitude;
-  double longitude;
-  
-  
-} __attribute__((packed)) esp_now_data_t;
-
-typedef struct{
-
-	double N_1_2;
-	double N_1_3;
-	double N_1_4;
-	double N_2_3;
-	double N_2_4;
-	double N_3_4;
-	
-  double N1_coordinates_x;
-  double N1_coordinates_y;
-
-  double N2_coordinates_x;
-  double N2_coordinates_y;
-
-  double N3_coordinates_x;
-  double N3_coordinates_y;
-
-  double N4_coordinates_x;
-  double N4_coordinates_y;
-
-	
-}node_dist;
 
 node_dist Node_distances_struct;
 
@@ -186,7 +213,7 @@ node_dist Node_distances_struct;
 // This class will be used to store the priority of the device and to send messages to the peers.
 // For more information about the ESP_NOW_Peer class, see the ESP_NOW_Peer class in the ESP32_NOW.h file.
 
-//ISR ---------------------------
+/*
 void IRAM_ATTR intr_func(){
 	
   reset_counter++;
@@ -194,7 +221,7 @@ void IRAM_ATTR intr_func(){
   if(initialize_time_GPS_PPS_counter >= initialize_time_GPS_PPS){
 	  
 	//na cycle ine hiya from 0 to 4 para anti collision 
-	if(reset_counter % 5 == Node_Number)
+	if(reset_counter % 10 == Node_Number+1)
     start_flag = true;
 	
   }else{
@@ -204,6 +231,18 @@ void IRAM_ATTR intr_func(){
   }
   
 }
+
+*/
+
+
+
+
+
+
+
+
+
+
 
 //Amo na ine na part an pag calculate hin distance kada node gamit han coordinates han GPS module (kaylangan 2 na inputs)
 //start han code (node-to-node distance)
@@ -457,6 +496,52 @@ void register_new_peer(const esp_now_recv_info_t *info, const uint8_t *data, int
 
 
 
+//----------------ISR----------------------
+void IRAM_ATTR GPS_PPS_func() {
+	
+	reset_counter++;
+
+	if(initialize_time_GPS_PPS_counter >= initialize_time_GPS_PPS){
+
+		//na cycle ine hiya from 0 to 4 para anti collision 
+		if(reset_counter % 10 == Node_Number+1)
+		start_flag = true;
+
+	}else{
+
+		initialize_time_GPS_PPS_counter++;
+
+	}
+	
+	if(check_all_peers_ready()){
+		
+		count1 = xthal_get_ccount();
+		
+	}
+}
+
+void IRAM_ATTR STM_trigger_func() {
+	
+  if(check_all_peers_ready()){
+	  
+	  explosion_trigger = true;
+	  uint32_t now = xthal_get_ccount();
+	  // handle possible wrap‑around
+	  if (now >= count1) {
+		  
+		elapsed = now - count1;
+		
+	  } else {
+		  
+		elapsed = (0xFFFFFFFFu - count1) + now + 1;
+		
+	  }
+	  //test_trig = true;
+  }
+}
+
+
+
 
 /* Main */
 
@@ -557,6 +642,77 @@ void calc_node_distances(node_dist *distances){
 	distances->N_3_4 = haversine(distances->N3_coordinates_x, distances->N3_coordinates_y, distances->N4_coordinates_x, distances->N4_coordinates_y );
 }
 
+bool trilaterate(
+    const Point& p1, double r1,
+    const Point& p2, double r2,
+    const Point& p3, double r3,
+    Point& out)
+{
+    double dx = p2.x - p1.x, dy = p2.y - p1.y;
+    double d = sqrt(dx*dx + dy*dy);
+    if (d == 0) return false;
+    double exx = dx / d, exy = dy / d;
+
+    double ix = p3.x - p1.x, iy = p3.y - p1.y;
+    double i  = exx*ix + exy*iy;
+
+    double tempX = ix - i*exx, tempY = iy - i*exy;
+    double tempDist = sqrt(tempX*tempX + tempY*tempY);
+    if (tempDist == 0) return false;
+    double eyx = tempX / tempDist, eyy = tempY / tempDist;
+
+    double j = eyx*ix + eyy*iy;
+
+    double x = (r1*r1 - r2*r2 + d*d) / (2*d);
+    double y = (r1*r1 - r3*r3 + i*i + j*j) / (2*j) - (i/j)*x;
+
+    out.x = p1.x + x*exx + y*eyx;
+    out.y = p1.y + x*exy + y*eyy;
+    return true;
+}
+
+
+void computeExplosionRelative(const node_dist& nd, Point& explosionRel) {
+    // compute ranges in meters
+    double r[5];
+    r[1] = nd.N1_delta_time * time_per_cycle * speed_of_sound;
+    r[2] = nd.N2_delta_time * time_per_cycle * speed_of_sound;
+    r[3] = nd.N3_delta_time * time_per_cycle * speed_of_sound;
+    r[4] = nd.N4_delta_time * time_per_cycle * speed_of_sound;
+
+    // absolute positions
+    Point absP[5];
+    absP[1] = { nd.N1_coordinates_x, nd.N1_coordinates_y };
+    absP[2] = { nd.N2_coordinates_x, nd.N2_coordinates_y };
+    absP[3] = { nd.N3_coordinates_x, nd.N3_coordinates_y };
+    absP[4] = { nd.N4_coordinates_x, nd.N4_coordinates_y };
+
+    // identify master: this code runs on master, so Node_Number is its ID
+    Point pMaster = absP[Node_Number];
+
+    // pick any three *other* nodes for trilateration
+    int a=0,b=0,c=0, idx=1;
+    for (int i = 1; i <= 4 && idx<4; ++i) {
+        if (i == Node_Number) continue;
+        if (a==0) a = i;
+        else if (b==0) b = i;
+        else if (c==0) c = i;
+        idx++;
+    }
+
+    // shift into master‑relative frame
+    Point p1 = { absP[a].x - pMaster.x, absP[a].y - pMaster.y };
+    Point p2 = { absP[b].x - pMaster.x, absP[b].y - pMaster.y };
+    Point p3 = { absP[c].x - pMaster.x, absP[c].y - pMaster.y };
+    double r1 = r[a], r2 = r[b], r3 = r[c];
+
+    // do trilateration
+    if (!trilaterate(p1, r1, p2, r2, p3, r3, explosionRel)) {
+        // fallback: try a different triple if needed...
+        explosionRel.x = explosionRel.y = NAN;
+    }
+}
+
 
 
 void setup() {
@@ -612,8 +768,11 @@ void setup() {
   
   //T.attach(1, intr_func);
   
-  pinMode(INTR_PIN, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(INTR_PIN), intr_func, FALLING);
+  pinMode(GPS_PPS_pin,     INPUT_PULLUP);
+  pinMode(STM_trigger_pin, INPUT_PULLUP);
+
+  attachInterrupt(digitalPinToInterrupt(GPS_PPS_pin), GPS_PPS_func, FALLING);
+  attachInterrupt(digitalPinToInterrupt(STM_trigger_pin), STM_trigger_func, FALLING);
   
   
   //dummy data
@@ -675,6 +834,24 @@ void loop() {
   
     }
 	
+	
+	if (check_all_peers_ready() && explosion_trigger && device_is_master) {
+		
+    calc_node_distances(&Node_distances_struct);
+
+    Point explosionRel;
+    computeExplosionRelative(Node_distances_struct, explosionRel);
+    if (!isnan(explosionRel.x)) {
+        // explosionRel is in meters relative to master at (0,0)
+        Serial.printf(
+            "Explosion approx. at relative (%.2f m, %.2f m) from master\n",
+            explosionRel.x, explosionRel.y
+        );
+        explosion_trigger = false;
+    } else {
+        Serial.println("Trilateration failed (colinear or bad data).");
+    }
+	}
   
 
 }
@@ -687,23 +864,27 @@ void getInfo(node_dist *dist, esp_now_data_t *loc_msg){
   double lat = gps.location.lat();
   double lng = gps.location.lng();
   
-  //pag kuha han sefl coordinates
+  //pag kuha han sefl coordinates tas delta time
   switch(Node_Number){
 	case 1:
 		dist->N1_coordinates_x = lat;
 		dist->N1_coordinates_y = lng;
+		dist->N1_delta_time = elapsed;
 	break;
 	case 2:
 		dist->N2_coordinates_x = lat;
 		dist->N2_coordinates_y = lng;
+		dist->N2_delta_time = elapsed;
 	break;
 	case 3:
 		dist->N3_coordinates_x = lat;
 		dist->N3_coordinates_y = lng;
+		dist->N3_delta_time = elapsed;
 	break;
 	case 4:
 		dist->N4_coordinates_x = lat;
 		dist->N4_coordinates_y = lng;
+		dist->N4_delta_time = elapsed;
 	break;
 	default:
 	break;
@@ -714,6 +895,10 @@ void getInfo(node_dist *dist, esp_now_data_t *loc_msg){
   //ig se send ha iba an mga coordinates
   loc_msg->latitude = lat;
   loc_msg->longitude = lng;
+  if(explosion_trigger){
+	loc_msg->delta_time = elapsed * time_per_cycle;
+	//explosion_trigger = false;
+  }
   
   
   

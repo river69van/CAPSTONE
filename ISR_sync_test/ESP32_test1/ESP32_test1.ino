@@ -1,0 +1,114 @@
+#include <Arduino.h>
+#include "driver/gpio.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "freertos/semphr.h"
+#include "esp32/rom/ets_sys.h"    // for xthal_get_ccount()
+#include "soc/rtc.h"              // for rtc_clk_cpu_freq_get()
+#include "soc/soc.h"              // for REG_READ / REG_WRITE
+
+volatile bool test_var_print = false;
+
+// ——— Pin Definitions ——————————————————————————————————————————————————————————
+static const gpio_num_t PIN_LED       = GPIO_NUM_2;   // on‑board LED
+static const gpio_num_t PIN_START     = GPIO_NUM_34;  // start edge
+static const gpio_num_t PIN_STOP      = GPIO_NUM_35;  // stop edge
+
+// ——— Timing & Sync Variables ———————————————————————————————————————————————————
+static volatile uint32_t cycles_start = 0;
+static volatile uint32_t cycles_stop  = 0;
+static volatile bool     data_ready   = false;
+
+// ——— FreeRTOS Semaphores —————————————————————————————————————————————————————
+static SemaphoreHandle_t semStart = nullptr;
+static SemaphoreHandle_t semStop  = nullptr;
+
+// ——— CPU Frequency for µs Conversion —————————————————————————————————————————
+static const uint32_t CPU_HZ = 240000000UL; // hard‑coded 240 MHz
+
+// ——— IRAM‑safe ISR: record start cycle and give semStart ———————————————————————
+static void IRAM_ATTR IRAM_START_ISR(void* arg) {
+  // latch & clear all GPIO interrupts
+  uint32_t status = REG_READ(GPIO_STATUS_REG);
+  REG_WRITE(GPIO_STATUS_W1TC_REG, status);
+
+  if (status & (1U << PIN_START)) {
+    cycles_start = xthal_get_ccount();
+    xSemaphoreGiveFromISR(semStart, nullptr);
+  }
+  //test_var_print = true;
+}
+
+// ——— IRAM‑safe ISR: record stop cycle and give semStop ————————————————————————
+static void IRAM_ATTR IRAM_STOP_ISR(void* arg) {
+  uint32_t status = REG_READ(GPIO_STATUS_REG);
+  REG_WRITE(GPIO_STATUS_W1TC_REG, status);
+
+  if (status & (1U << PIN_STOP)) {
+    cycles_stop = xthal_get_ccount();
+    xSemaphoreGiveFromISR(semStop, nullptr);
+  }
+  test_var_print = true;
+}
+
+// ——— Timing Task: wait for start & stop, compute µs, print —————————————————————
+static void timingTask(void* pvParameters) {
+  while (true) {
+    // wait for the “start” interrupt
+    if (xSemaphoreTake(semStart, portMAX_DELAY) == pdTRUE) {
+      // then wait for the “stop” interrupt
+      if (xSemaphoreTake(semStop, portMAX_DELAY) == pdTRUE) {
+        uint32_t delta = cycles_stop - cycles_start;
+        uint32_t us    = (uint64_t)delta * 1000000ULL / CPU_HZ;
+        Serial.printf("Elapsed time: %u µs\n", us);
+      }
+    }
+  }
+}
+
+void setup() {
+  // — Serial for output
+  Serial.begin(115200);
+  delay(100); // give time for monitor to open
+
+  // — LED pin
+  pinMode(PIN_LED, OUTPUT);
+  digitalWrite(PIN_LED, LOW);
+
+  // — Configure start/stop pins
+  pinMode(PIN_START, INPUT_PULLUP);
+  pinMode(PIN_STOP,  INPUT_PULLUP);
+  gpio_set_intr_type(PIN_START, GPIO_INTR_NEGEDGE);
+  gpio_set_intr_type(PIN_STOP,  GPIO_INTR_NEGEDGE);
+
+  // — Create semaphores
+  semStart = xSemaphoreCreateBinary();
+  semStop  = xSemaphoreCreateBinary();
+
+  // — Install shared GPIO ISR service
+  gpio_install_isr_service(0);
+
+  // — Attach our IRAM‑safe handlers
+  gpio_isr_handler_add(PIN_START, IRAM_START_ISR, nullptr);
+  gpio_isr_handler_add(PIN_STOP,  IRAM_STOP_ISR,  nullptr);
+
+  // — Launch the timing task at high priority
+  xTaskCreate(
+    timingTask,
+    "Timing Task",
+    2048,
+    nullptr,
+    configMAX_PRIORITIES - 1,
+    nullptr
+  );
+}
+
+void loop() {
+  // Simply blink the LED to show the sketch is alive
+  if(test_var_print){
+
+    Serial.println("na dara hahah nice");
+    test_var_print = false;
+
+  }
+}
