@@ -58,7 +58,7 @@
 #include "WiFi.h"
 #include <math.h>
 #include <esp_mac.h>  // For the MAC2STR and MACSTR macros
-#include <Ticker.h>
+//#include <Ticker.h>
 #include <vector>
 #include <xtensa/core-macros.h>
 /* Definitions */
@@ -68,7 +68,7 @@
 #define GPS_PPS_pin       34
 #define STM_trigger_pin   35
 
-#define INTR_PIN 4
+//#define INTR_PIN 4
 
 #define Node_Number 1
 // Wi-Fi interface to be used by the ESP-NOW protocol
@@ -498,7 +498,7 @@ void register_new_peer(const esp_now_recv_info_t *info, const uint8_t *data, int
 
 //----------------ISR----------------------
 void IRAM_ATTR GPS_PPS_func() {
-	
+	count1 = xthal_get_ccount();
 	reset_counter++;
 
 	if(initialize_time_GPS_PPS_counter >= initialize_time_GPS_PPS){
@@ -512,12 +512,13 @@ void IRAM_ATTR GPS_PPS_func() {
 		initialize_time_GPS_PPS_counter++;
 
 	}
-	
+	/*
 	if(check_all_peers_ready()){
 		
 		count1 = xthal_get_ccount();
 		
 	}
+	*/
 }
 
 void IRAM_ATTR STM_trigger_func() {
@@ -715,6 +716,22 @@ void computeExplosionRelative(const node_dist& nd, Point& explosionRel) {
 
 
 
+void metersToLatLon(
+    const Point& rel,
+    double  lat0, double  lon0,
+    double& explosionLat,
+    double& explosionLon
+) {
+    // Approximate meters-per-degree at lat0
+    const double metersPerDegLat = 111320.0;
+    const double metersPerDegLon = 111320.0 * cos(lat0 * M_PI / 180.0);
+
+    explosionLat = lat0 + (rel.y / metersPerDegLat);
+    explosionLon = lon0 + (rel.x / metersPerDegLon);
+}
+
+
+
 void setup() {
   uint8_t self_mac[6];
 
@@ -837,20 +854,55 @@ void loop() {
 	
 	if (check_all_peers_ready() && explosion_trigger && device_is_master) {
 		
-    calc_node_distances(&Node_distances_struct);
+		double masterLat;
+		double masterLon;
+		
+		switch(Node_Number){
+			case 1:
+				masterLat = Node_distances_struct.N1_coordinates_x;
+				masterLon = Node_distances_struct.N1_coordinates_y;
+			break;
+			case 2:
+				masterLat = Node_distances_struct.N2_coordinates_x;
+				masterLon = Node_distances_struct.N2_coordinates_y;
+			break;
+			case 3:
+				masterLat = Node_distances_struct.N3_coordinates_x;
+				masterLon = Node_distances_struct.N3_coordinates_y;
+			break;
+			case 4:
+				masterLat = Node_distances_struct.N4_coordinates_x;
+				masterLon = Node_distances_struct.N4_coordinates_y;
+			break;
+			default:
+			break;
+			
+		}
+		
+		
+		
+		
+		
+		calc_node_distances(&Node_distances_struct);
 
-    Point explosionRel;
-    computeExplosionRelative(Node_distances_struct, explosionRel);
-    if (!isnan(explosionRel.x)) {
-        // explosionRel is in meters relative to master at (0,0)
-        Serial.printf(
-            "Explosion approx. at relative (%.2f m, %.2f m) from master\n",
-            explosionRel.x, explosionRel.y
-        );
-        explosion_trigger = false;
-    } else {
-        Serial.println("Trilateration failed (colinear or bad data).");
-    }
+		Point explosionRel;
+		computeExplosionRelative(Node_distances_struct, explosionRel);
+		if (!isnan(explosionRel.x)) {
+			
+			double expLat, expLon;
+			metersToLatLon(explosionRel, masterLat, masterLon, expLat, expLon);
+			// explosionRel is in meters relative to master at (0,0)
+			
+			Serial.printf(
+				"Explosion at %.6f°, %.6f° (≈ %.2fm E, %.2fm N)\n",
+				expLat, expLon,
+				explosionRel.x, explosionRel.y
+			);
+			explosion_trigger = false;
+			
+		} else {
+			Serial.println("Trilateration failed (colinear or bad data).");
+		}
 	}
   
 
@@ -896,7 +948,7 @@ void getInfo(node_dist *dist, esp_now_data_t *loc_msg){
   loc_msg->latitude = lat;
   loc_msg->longitude = lng;
   if(explosion_trigger){
-	loc_msg->delta_time = elapsed * time_per_cycle;
+	loc_msg->delta_time = elapsed;
 	//explosion_trigger = false;
   }
   
