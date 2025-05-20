@@ -11,6 +11,8 @@
 #define FFT_BINS       (ADC_BUFFER_SIZE/2) 
 
 const int to_trigger_ESP = PA1;
+//dre gun ine na pin ura ura nga priority kay pan verify la kun match an signal 
+const int verify_ESP_pin = PA2;
 
 int buffer_count;
 const float samplingFrequency = 10000; 
@@ -295,6 +297,8 @@ void FFT_setup(){
 void setup() {
 	
 	pinMode(to_trigger_ESP, OUTPUT);
+	digitalWrite(to_trigger_ESP, 1);
+	pinMode(verify_ESP_pin, OUTPUT);
 	
 	Serial.begin(115200);
 	tim3_trigger_init(10000);   // 10 kHz sampling
@@ -310,11 +314,16 @@ void loop() {
   
   
 	if (ADC_GetFlagStatus(ADC1, ADC_FLAG_AWD)) {
+		//ig trigger pag nag lapos na ha threshold
+		digitalWrite(to_trigger_ESP, 0);
 		ADC_ClearFlag(ADC1, ADC_FLAG_AWD);
 		delay(30);
 		FFT_run();
 		//if()
 		//Serial.println("AWD flag is set in SR!");
+	}else{
+		
+		digitalWrite(to_trigger_ESP, 1);
 	}
   
 
@@ -360,9 +369,9 @@ void FFT_run(){
 	Serial.println(freqShiftHz, 3);
 	
 	if(similarity > 0.9){
-		digitalWrite(to_trigger_ESP, 1);
+		digitalWrite(verify_ESP_pin, 0);
 	}else{
-		digitalWrite(to_trigger_ESP, 0);
+		digitalWrite(verify_ESP_pin, 1);
 	}
 	//while(1);
 	delay(1000);  // Optional for pacing
