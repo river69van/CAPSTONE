@@ -30,11 +30,15 @@
 		ig reset kola an tanan na node ha spacific the counter based pa PPS count hahahaha ez
 	}
 	
+	
+	
 	21/04/2025 05:15{
 		Dapat ine na line "if(reset_counter % 5 == Node_Number)" may ig enclose somthing na, na verify
 		na ready na tanan na nodes. Tas dapat an pag reset na solution ma depend ha time tikang han GPS module. 
 		
 	}
+	
+	
 	
 	23/04/2025 18:04{
 		mas maupay ig run nala an send_func_block() ha loop or ig ticker nala tapos an ISR karan timer sync nala 
@@ -42,8 +46,27 @@
 	}
 	
 	
+	
 	17/05/2025 05:13{
 		aayoson kopa an mga struct karan delta time tas an explosion_trigger dapat ma reset tas an mga delta time liwat dapat ma reset. 
+	}
+	
+	
+	
+	21/05/2025 12:56{
+		hihimuon na an ine na protocol para ma plot an mga data ha laptop:
+
+		//protocol na ine hiya para ma receive han desktop app
+		
+		void sample_message(char FLAG,  int Xcoor, int Ycoor, int Snum = 0){
+			Serial.println(FLAG);
+			Serial.println(Snum);
+			Serial.println("A");
+			Serial.println(Xcoor);
+			Serial.println(Ycoor);
+			//Serial.println("D");
+		}
+		
 	}
 	
 
@@ -67,6 +90,7 @@
 
 #define GPS_PPS_pin       34
 #define STM_trigger_pin   35
+#define verify_pin		  4
 
 //#define INTR_PIN 4
 
@@ -784,7 +808,8 @@ void setup() {
   new_msg.node_number = Node_Number;
   
   //T.attach(1, intr_func);
-  
+  delay(3000);
+  pinMode(verify_pin, INPUT_PULLUP);
   pinMode(GPS_PPS_pin,     INPUT_PULLUP);
   pinMode(STM_trigger_pin, INPUT_PULLUP);
 
@@ -903,6 +928,12 @@ void loop() {
 		} else {
 			Serial.println("Trilateration failed (colinear or bad data).");
 		}
+		/*
+		//ig uncomment ine pag naka setup na an message structure para laptop
+		if(digitalRead(verify_pin) == 0){
+			//ig send ha laptop an mga data
+		}
+		*/
 	}
   
 
